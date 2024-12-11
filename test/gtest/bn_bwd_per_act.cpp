@@ -6,9 +6,10 @@
 #include <miopen/miopen.h>
 #include <miopen/kernel_build_params.hpp>
 
-#include <src/kernels/batchnorm_functions.hpp>
-
+// #include <src/kernels/batchnorm_functions.hpp>
 #include <iostream>
+#include <string>
+#include <vector>
 
 // Quick hack to keep vscode happy, should probably get rid of this
 #ifndef FP_TYPE
@@ -19,11 +20,6 @@
 
 namespace {
 
-using vector = std::vector;
-using string = std::string;
-using cout = std::cout;
-using endl = std::endl;
-
 struct BnBWDPATestCase
 {
     int N;
@@ -32,13 +28,13 @@ struct BnBWDPATestCase
     int W;
 };
 
-constexpr std::vector<BnBWDPATestCase> GetBnBwdPA_TestConfig()
+std::vector<BnBWDPATestCase> GetBnBwdPA_TestConfig()
 {
     return {
         {8, 16, 32, 32},
         {4, 32, 28, 28},
         {2, 64, 8, 8}
-    }
+    };
 }
 
 struct BnBwdPATest : public ::testing::TestWithParam<BnBWDPATestCase>
@@ -58,20 +54,34 @@ protected:
         size_t per_act_size = C * H * W;
 
         // Adjust input vector size
-        in_host.resize(in_size);
-        dy_host.resize(in_size);
-        scale_host.resize(per_act_size);
-        savedMean_host.resize(per_act_size);
-        savedInvVariance_host.resize(per_act_size);
+        // in_host = tesnro<FP_TYPE>{N, C, H, W};
+        // dy_host.resize(in_size);
+        // scale_host.resize(per_act_size);
+        // savedMean_host.resize(per_act_size);
+        // savedInvVariance_host.resize(per_act_size);
+
+        in_host = tensor<FP_TYPE>{N, C, H, W};
+        dy_host = tensor<FP_TYPE>{N, C, H, W};
+        scale_host = tensor<FP_TYPE_PREC>{1, C, H, W};
+        savedMean_host = tensor<FP_TYPE_PREC>{1, C, H, W};
+        savedInvVariance_host = tensor<FP_TYPE_PREC>{1, C, H, W};
 
         // Adjust output vector size
-        dx_host_ocl.resize(in_size);
-        dscale_host_ocl.resize(per_act_size);
-        dbias_host_ocl.resize(per_act_size);
+        // dx_host_ocl.resize(in_size);
+        // dscale_host_ocl.resize(per_act_size);
+        // dbias_host_ocl.resize(per_act_size);
 
-        dx_host_hip.resize(in_size);
-        dscale_host_hip.resize(per_act_size);
-        dbias_host_hip.resize(per_act_size);
+        // dx_host_hip.resize(in_size);
+        // dscale_host_hip.resize(per_act_size);
+        // dbias_host_hip.resize(per_act_size);
+
+        dx_host_ocl = tensor<FP_TYPE>{N, C, H, W};
+        dscale_host_ocl = tensor<FP_TYPE_PREC>{1, C, H, W};
+        dbias_host_ocl = tensor<FP_TYPE_PREC>{1, C, H, W};
+
+        dx_host_hip = tensor<FP_TYPE>{N, C, H, W};
+        dscale_host_hip = tensor<FP_TYPE_PREC>{1, C, H, W};
+        dbias_host_hip = tensor<FP_TYPE_PREC>{1, C, H, W};
 
         // Generate some test data (not sure if this is any good) ⚠️
         for (size_t i = 0; i < in_size; ++i)
@@ -87,27 +97,28 @@ protected:
             savedInvVariance_host[i] = (1.0f + (i % 10) * 0.1f);
         }
 
-        // Write generated data to input tensors
-        // might need to pre-allocate with something like the line below first????? ⚠️
-        // in_dev = tensor<FP_TYPE>{in_size};
-        in_dev = handle.Write(in_host.data());
-        dy_dev = handle.Write(dy_host.data());
-        scale_dev = handle.Write(scale_host.data());
-
-        // Probably need to pre-allocate output tensors
-        dx_dev = tensor<FP_TYPE>{in_size};
-        dscale_dev = tensor<FP_TYPE>{per_act_size};
-        dbias_dev = tensor<FP_TYPE>{per_act_size};
     }
 
     void RunOCLKernel()
     {
         auto&& handle = get_handle();
 
+        // Write generated data to input tensors
+        // might need to pre-allocate with something like the line below first????? ⚠️
+        // in_dev = tensor<FP_TYPE>{in_size};
+        in_dev = handle.Write(in_host.data);
+        dy_dev = handle.Write(dy_host.data);
+        scale_dev = handle.Write(scale_host.data);
+
         // Allocate and initialize additional input tensors
         // Might need to reset in_dev, dy_dev, scale_dev here ⚠️
-        savedMean_dev = handle.Write(savedMean_host.data());
-        savedInvVar_dev = handle.Write(savedInvVariance_host.data());
+        savedMean_dev = handle.Write(savedMean_host.data);
+        savedInvVar_dev = handle.Write(savedInvVariance_host.data);
+
+        // Probably need to pre-alclearlocate output tensors
+        dx_dev = handle.Write(dx_host_ocl.data);
+        dscale_dev = handle.Write(dscale_host_ocl.data);
+        dbias_dev = handle.Write(dbias_host_ocl.data);
 
         int in_nstride = C * H * W;
         int in_cstride = H * W;
@@ -120,18 +131,13 @@ protected:
         std::vector<size_t> vgd = {static_cast<size_t>(C), static_cast<size_t>(H*W), 1};
         std::vector<size_t> vld = {1, 1, 1};
 
-        string program_name = "MIOpenBatchNormBwdPerAct.cl";
-        string kernel_name  = "MIOpenBatchNormBwdPerActivationSaved";
-        string network_config = "bn_bwd_pa_ocl_test";
+        std::string program_name = "MIOpenBatchNormBwdPerAct.cl";
+        std::string kernel_name  = "MIOpenBatchNormBwdPerActivationSaved";
+        std::string network_config = "bn_bwd_pa_ocl_test";
 
         miopen::KernelBuildParameters options{};
-        string params = options.GenerateFor(miopen::kbp::OpenCL{});
+        std::string params = options.GenerateFor(miopen::kbp::OpenCL{});
 
-
-        // Todo
-        // Set up additional params
-        const std::vector<size_t> vgd{blocksPerGrid * threadsPerBlock, 1, 1};
-        const std::vector<size_t> vld{threadsPerBlock, 1, 1};
 
         // Call handle.AddKernel()
         auto k = handle.AddKernel("bn_bwd_pa_ocl",
@@ -154,9 +160,9 @@ protected:
 
 
         // Read results back
-        dx_host_ocl     = handle.Read<T>(dx_dev, dx_host_ocl.size());
-        dscale_host_ocl = handle.Read<FP>(dscale_dev, dscale_host_ocl.size());
-        dbias_host_ocl  = handle.Read<FP>(dbias_dev, dbias_host_ocl.size());
+        dx_host_ocl.data     = handle.Read<FP_TYPE>(dx_dev, dx_host_ocl.data.size());
+        dscale_host_ocl.data = handle.Read<FP_TYPE_PREC>(dscale_dev, dscale_host_ocl.data.size());
+        dbias_host_ocl.data  = handle.Read<FP_TYPE_PREC>(dbias_dev, dbias_host_ocl.data.size());
     }
 
     void RunHIPKernel()
@@ -169,44 +175,45 @@ protected:
     void VerifyResults()
     {
         // Todo
-        cout << "dx_host_ocl: ";
+        std::cout << "dx_host_ocl: ";
         for(const auto& v : dx_host_ocl) {
-            cout << v << " ";
+            std::cout << v << " ";
         }
-        cout << endl;
+        std::cout << std::endl;
 
-        cout << "dscale_host_ocl: ";
+        std::cout << "dscale_host_ocl: ";
         for(const auto& v : dscale_host_ocl) {
-            cout << v << " ";
+            std::cout << v << " ";
         }
-        cout << endl;
+        std::cout << std::endl;
 
-        cout << "dbias_host_ocl: ";
+        std::cout << "dbias_host_ocl: ";
         for(const auto& v : dbias_host_ocl) {
-            cout << v << " ";
+            std::cout << v << " ";
         }
+        std::cout << std::endl;
     }
 
     // Variables
     int N, C, H, W;
     BnBWDPATestCase bn_config;
     
-    // Input vectors
-    vector<FP_TYPE> in_host;
-    vector<FP_TYPE> dy_host;
-    vector<FP_TYPE_PREC> scale_host;
+    // Input tensors
+    tensor<FP_TYPE> in_host;
+    tensor<FP_TYPE> dy_host;
+    tensor<FP_TYPE_PREC> scale_host;
     // Input vector for saved versions
-    vector<FP_TYPE_PREC> savedMean_host;
-    vector<FP_TYPE_PREC> savedInvVariance_host;
+    tensor<FP_TYPE_PREC> savedMean_host;
+    tensor<FP_TYPE_PREC> savedInvVariance_host;
 
     // Output vectors (dx_out, delta_scale, delta_bias)
-    vector<FP_TYPE> dx_host_ocl;
-    vector<FP_TYPE_PREC> dscale_host_ocl;
-    vector<FP_TYPE_PREC> dbias_host_ocl;
+    tensor<FP_TYPE> dx_host_ocl;
+    tensor<FP_TYPE_PREC> dscale_host_ocl;
+    tensor<FP_TYPE_PREC> dbias_host_ocl;
 
-    vector<FP_TYPE> dx_host_hip;
-    vector<FP_TYPE_PREC> dscale_host_hip;
-    vector<FP_TYPE_PREC> dbias_host_hip;
+    tensor<FP_TYPE> dx_host_hip;
+    tensor<FP_TYPE_PREC> dscale_host_hip;
+    tensor<FP_TYPE_PREC> dbias_host_hip;
 
     // Tensors for corresnpoding vectors
     miopen::Allocator::ManageDataPtr in_dev;
